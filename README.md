@@ -96,6 +96,14 @@ seq_len  KV cache     KV/token    prefill FLOPs  decode FLOPs/token  decode KV r
 8192     1.00 GiB     128.00 KiB  35.18T         4.29B               1.00 GiB              4.00
 ```
 
+Export sweep data to CSV:
+
+```bash
+attention-cost --preset llama3-8b --sweep 1024,2048,4096,8192 --csv sweep.csv
+```
+
+CSV output includes raw byte/FLOP columns for plotting and formatted columns for quick inspection.
+
 ## Model Presets
 
 The presets are common shape shortcuts, not performance claims:
@@ -114,7 +122,7 @@ python -m attention_cost_lab.cli --preset llama3-8b --seq-len 8192
 ## Roadmap
 
 - ~~Add context length sweep comparisons.~~ Done in v0.2.0
-- Add CSV export for sweep results.
+- ~~Add CSV export for sweep results.~~ Done in v0.3.0
 - Add simple roofline estimates for memory bandwidth limits.
 - Add SVG/Markdown report export.
 - Add tensor-parallel and pipeline-parallel memory breakdowns.

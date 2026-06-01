@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 from dataclasses import asdict
+from pathlib import Path
 
 from .core import AttentionConfig, PRESETS, estimate_attention, format_bytes, format_number, optimization_notes
 
@@ -23,6 +25,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dtype", default="fp16", help="Activation/KV dtype. Defaults to fp16.")
     parser.add_argument("--generated-tokens", type=int, default=1, help="Decode tokens to estimate. Defaults to 1.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
+    parser.add_argument("--csv", help="Write estimates to a CSV file.")
     return parser
 
 
@@ -118,6 +121,42 @@ def estimate_payload(config: AttentionConfig) -> dict:
     }
 
 
+def csv_row(config: AttentionConfig) -> dict[str, int | float | str]:
+    estimate = estimate_attention(config)
+    return {
+        "seq_len": config.seq_len,
+        "batch_size": config.batch_size,
+        "layers": config.layers,
+        "hidden_size": config.hidden_size,
+        "heads": config.heads,
+        "kv_heads": config.normalized_kv_heads,
+        "head_dim": estimate.head_dim,
+        "dtype": config.dtype,
+        "kv_cache_bytes": estimate.kv_cache_bytes,
+        "kv_cache": format_bytes(estimate.kv_cache_bytes),
+        "kv_cache_growth_per_token_bytes": estimate.kv_cache_growth_per_token_bytes,
+        "prefill_attention_flops": estimate.prefill_attention_flops,
+        "decode_attention_flops_per_token": estimate.decode_attention_flops_per_token,
+        "decode_kv_read_bytes_per_token": estimate.decode_kv_read_bytes_per_token,
+        "arithmetic_intensity_flops_per_byte": estimate.arithmetic_intensity_flops_per_byte,
+    }
+
+
+def write_csv(path: str, configs: list[AttentionConfig]) -> Path:
+    output_path = Path(path)
+    if output_path.parent != Path("."):
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    rows = [csv_row(config) for config in configs]
+    fieldnames = list(rows[0].keys())
+    with output_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    return output_path
+
+
 def print_sweep_table(config: AttentionConfig, lengths: list[int]) -> None:
     rows = []
     for seq_len in lengths:
@@ -164,15 +203,20 @@ def main(argv: list[str] | None = None) -> int:
     if args.sweep:
         lengths = parse_sweep_lengths(args.sweep)
         configs = [config_with_seq_len(config, seq_len) for seq_len in lengths]
+        csv_path = write_csv(args.csv, configs) if args.csv else None
 
         if args.json:
             print(json.dumps({"sweep": [estimate_payload(item) for item in configs]}, indent=2))
             return 0
 
         print_sweep_table(config, lengths)
+        if csv_path:
+            print()
+            print(f"CSV written to {csv_path}")
         return 0
 
     estimate = estimate_attention(config)
+    csv_path = write_csv(args.csv, [config]) if args.csv else None
 
     if args.json:
         print(json.dumps(estimate_payload(config), indent=2))
@@ -185,6 +229,9 @@ def main(argv: list[str] | None = None) -> int:
     print("Optimization notes:")
     for note in optimization_notes(estimate):
         print(f"- {note}")
+    if csv_path:
+        print()
+        print(f"CSV written to {csv_path}")
     return 0
 
 
