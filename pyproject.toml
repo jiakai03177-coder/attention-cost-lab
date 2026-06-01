@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "attention-cost-lab"
-version = "0.3.0"
+version = "0.4.0"
 description = "Estimate Transformer attention FLOPs, KV cache size, and decode memory pressure."
 readme = "README.md"
 requires-python = ">=3.10"

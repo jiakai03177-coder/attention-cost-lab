@@ -119,6 +119,66 @@ class AttentionEstimate:
         ]
 
 
+@dataclass(frozen=True)
+class RooflineHardware:
+    memory_bandwidth_gbps: float | None = None
+    compute_tflops: float | None = None
+
+    def validate(self) -> None:
+        if self.memory_bandwidth_gbps is None and self.compute_tflops is None:
+            raise ValueError("roofline estimates require memory bandwidth, compute throughput, or both")
+        for name, value in {
+            "memory_bandwidth_gbps": self.memory_bandwidth_gbps,
+            "compute_tflops": self.compute_tflops,
+        }.items():
+            if value is not None and value <= 0:
+                raise ValueError(f"{name} must be > 0")
+
+    @property
+    def memory_bandwidth_bytes_per_second(self) -> float | None:
+        if self.memory_bandwidth_gbps is None:
+            return None
+        return self.memory_bandwidth_gbps * 1_000_000_000
+
+    @property
+    def compute_flops_per_second(self) -> float | None:
+        if self.compute_tflops is None:
+            return None
+        return self.compute_tflops * 1_000_000_000_000
+
+
+@dataclass(frozen=True)
+class RooflineEstimate:
+    hardware: RooflineHardware
+    decode_memory_seconds_per_step: float | None
+    decode_compute_seconds_per_step: float | None
+    decode_roofline_seconds_per_step: float
+    decode_tokens_per_second: float
+    bottleneck: str
+    ridge_point_flops_per_byte: float | None
+
+    def to_rows(self) -> list[tuple[str, str]]:
+        rows = []
+        if self.hardware.memory_bandwidth_gbps is not None:
+            rows.append(("memory bandwidth", f"{self.hardware.memory_bandwidth_gbps:g} GB/s"))
+        if self.hardware.compute_tflops is not None:
+            rows.append(("compute throughput", f"{self.hardware.compute_tflops:g} TFLOP/s"))
+        if self.ridge_point_flops_per_byte is not None:
+            rows.append(("roofline ridge point", f"{self.ridge_point_flops_per_byte:.2f} FLOPs/byte"))
+        if self.decode_memory_seconds_per_step is not None:
+            rows.append(("decode memory lower bound", format_seconds(self.decode_memory_seconds_per_step)))
+        if self.decode_compute_seconds_per_step is not None:
+            rows.append(("decode compute lower bound", format_seconds(self.decode_compute_seconds_per_step)))
+        rows.extend(
+            [
+                ("decode roofline time", format_seconds(self.decode_roofline_seconds_per_step)),
+                ("decode roofline throughput", format_tokens_per_second(self.decode_tokens_per_second)),
+                ("roofline bottleneck", self.bottleneck),
+            ]
+        )
+        return rows
+
+
 def estimate_attention(config: AttentionConfig) -> AttentionEstimate:
     config.validate()
 
@@ -159,6 +219,42 @@ def estimate_attention(config: AttentionConfig) -> AttentionEstimate:
     )
 
 
+def estimate_roofline(estimate: AttentionEstimate, hardware: RooflineHardware) -> RooflineEstimate:
+    hardware.validate()
+
+    memory_seconds = None
+    if hardware.memory_bandwidth_bytes_per_second is not None:
+        memory_seconds = estimate.decode_kv_read_bytes_per_token / hardware.memory_bandwidth_bytes_per_second
+
+    compute_seconds = None
+    if hardware.compute_flops_per_second is not None:
+        compute_seconds = estimate.decode_attention_flops_per_token / hardware.compute_flops_per_second
+
+    candidates = [value for value in [memory_seconds, compute_seconds] if value is not None]
+    roofline_seconds = max(candidates)
+    if memory_seconds is not None and (compute_seconds is None or memory_seconds >= compute_seconds):
+        bottleneck = "memory"
+    else:
+        bottleneck = "compute"
+
+    ridge_point = None
+    if (
+        hardware.compute_flops_per_second is not None
+        and hardware.memory_bandwidth_bytes_per_second is not None
+    ):
+        ridge_point = hardware.compute_flops_per_second / hardware.memory_bandwidth_bytes_per_second
+
+    return RooflineEstimate(
+        hardware=hardware,
+        decode_memory_seconds_per_step=memory_seconds,
+        decode_compute_seconds_per_step=compute_seconds,
+        decode_roofline_seconds_per_step=roofline_seconds,
+        decode_tokens_per_second=estimate.config.batch_size / roofline_seconds,
+        bottleneck=bottleneck,
+        ridge_point_flops_per_byte=ridge_point,
+    )
+
+
 def format_bytes(value: int) -> str:
     units = ["B", "KiB", "MiB", "GiB", "TiB"]
     amount = float(value)
@@ -177,6 +273,22 @@ def format_number(value: int) -> str:
             return f"{amount:.2f}{unit}" if unit else str(int(amount))
         amount /= 1000
     return str(value)
+
+
+def format_seconds(value: float) -> str:
+    if value < 1e-6:
+        return f"{value * 1e9:.2f} ns"
+    if value < 1e-3:
+        return f"{value * 1e6:.2f} us"
+    if value < 1:
+        return f"{value * 1e3:.2f} ms"
+    return f"{value:.2f} s"
+
+
+def format_tokens_per_second(value: float) -> str:
+    if value < 1000:
+        return f"{value:.2f} tokens/s"
+    return f"{format_number(round(value))} tokens/s"
 
 
 def optimization_notes(estimate: AttentionEstimate) -> list[str]:

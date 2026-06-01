@@ -8,6 +8,7 @@ This is a small CLI for quickly answering practical inference questions:
 - How much does GQA reduce decode-time KV reads?
 - How many attention FLOPs happen during prefill and decode?
 - Is a shape likely to be memory-pressure sensitive during generation?
+- What decode throughput does a simple hardware roofline imply?
 
 ## Demo
 
@@ -77,6 +78,26 @@ JSON output:
 attention-cost --preset mistral-7b --seq-len 8192 --json
 ```
 
+Estimate a simple decode roofline from sustained bandwidth and compute:
+
+```bash
+attention-cost --preset llama3-8b --seq-len 8192 --memory-bandwidth-gbps 1000 --compute-tflops 100
+```
+
+Example roofline output:
+
+```text
+Roofline estimate:
+memory bandwidth              1000 GB/s
+compute throughput            100 TFLOP/s
+roofline ridge point          100.00 FLOPs/byte
+decode memory lower bound     1.07 ms
+decode compute lower bound    42.95 us
+decode roofline time          1.07 ms
+decode roofline throughput    931.32 tokens/s
+roofline bottleneck           memory
+```
+
 Compare multiple context lengths:
 
 ```bash
@@ -103,6 +124,7 @@ attention-cost --preset llama3-8b --sweep 1024,2048,4096,8192 --csv sweep.csv
 ```
 
 CSV output includes raw byte/FLOP columns for plotting and formatted columns for quick inspection.
+When roofline inputs are provided, CSV and JSON output include the roofline columns too.
 
 ## Model Presets
 
@@ -123,7 +145,7 @@ python -m attention_cost_lab.cli --preset llama3-8b --seq-len 8192
 
 - ~~Add context length sweep comparisons.~~ Done in v0.2.0
 - ~~Add CSV export for sweep results.~~ Done in v0.3.0
-- Add simple roofline estimates for memory bandwidth limits.
+- ~~Add simple roofline estimates for memory bandwidth limits.~~ Done in v0.4.0
 - Add SVG/Markdown report export.
 - Add tensor-parallel and pipeline-parallel memory breakdowns.
 
