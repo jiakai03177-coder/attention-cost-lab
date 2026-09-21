@@ -1,11 +1,47 @@
 __pycache__/
 *.py[cod]
+
+# Test, type-checker, and lint caches
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Virtual environments and local secrets
 .venv/
+venv/
+env/
+ENV/
+.env
+.env.*
+!.env.example
+
+# Coverage and test environments
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# Packaging and build output
 build/
 dist/
 *.egg-info/
+
+# Editor and operating-system files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# Project-generated output
 .context-pack/
 sweep.csv
